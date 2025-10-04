@@ -1,0 +1,69 @@
+use crate::sim::SimUniform;
+
+pub struct GpuBuffers {
+    /// Buffer containing particle positions
+    pub positions: wgpu::Buffer,
+    /// Buffer containing particle velocities
+    pub velocities: wgpu::Buffer,
+    /// Buffer containing particle colors
+    pub colors: wgpu::Buffer,
+    /// Buffer containing simulation parameters
+    pub uniform: wgpu::Buffer,
+    /// Number of particles the buffers can hold
+    pub capacity: u32,
+}
+
+impl GpuBuffers {
+    pub fn create(device: &wgpu::Device, mut capacity: u32) -> Self {
+        // Align capacity to the closest power of two for better memory alignment
+        capacity = capacity.next_power_of_two();
+
+        let f2_size = std::mem::size_of::<[f32; 2]>() as u64;
+        let f4_size = std::mem::size_of::<[f32; 4]>() as u64;
+
+        let pos_size = f2_size * capacity as u64;
+        let vel_size = f2_size * capacity as u64;
+        let col_size = f4_size * capacity as u64;
+
+        let mk = |label: &str, size: u64, usage: wgpu::BufferUsages| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage,
+                mapped_at_creation: false,
+            })
+        };
+
+        let positions = mk(
+            "positions",
+            pos_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let velocities = mk(
+            "velocities",
+            vel_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let colors = mk(
+            "colors",
+            col_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let uniform = mk(
+            "sim_params",
+            std::mem::size_of::<SimUniform>() as u64,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        );
+
+        Self {
+            positions,
+            velocities,
+            colors,
+            uniform,
+            capacity,
+        }
+    }
+}
