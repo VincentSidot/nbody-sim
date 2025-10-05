@@ -5,6 +5,16 @@ pub struct SimUniform {
     pub dt_g_soft_n: [f32; 4],
     /// (world_x, world_y, damping, wrap as f32)
     pub world_damp_wrap: [f32; 4],
+    /// Currently used buffer (0 or 1)
+    pub buff_na_na_na: [f32; 4],
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BufferInUse {
+    #[default]
+    Primary = 0,
+    Secondary = 1,
 }
 
 #[derive(Default)]
@@ -23,6 +33,10 @@ pub struct SimParams {
     pub damping: f32,
     /// Whether the world wraps around at the edges
     pub wrap: bool,
+    /// Whether the simulation is paused
+    pub paused: bool,
+    /// Note the current used buffer (0 or 1)
+    pub buffer_in_use: BufferInUse,
 }
 
 pub enum ParticleUpdated {
@@ -38,6 +52,44 @@ pub enum ParamsEguiAction {
     Reset,
     /// Parameter updates
     ParameterUpdated(ParticleUpdated),
+    /// Step the simulation (if paused)
+    Step,
+}
+
+/// Compute average frame time and FPS over the last N frames and update the last_frames array
+///
+/// # Arguments
+///
+/// * `last_frames` - A mutable reference to an array of the last N frame timestamps
+///
+/// # Returns
+///
+/// A tuple containing the average frame time in milliseconds and the frames per second (FPS)
+fn compute_time_info(
+    last_frames: &mut [std::time::Instant; crate::constants::egui::TIME_INFO_LAST_N],
+) -> (f32, f32) {
+    let now = std::time::Instant::now();
+    let mut total_time = 0.0;
+    for i in 1..last_frames.len() {
+        total_time += (last_frames[i] - last_frames[i - 1]).as_secs_f32();
+    }
+    total_time += (now - last_frames[0]).as_secs_f32();
+
+    let avg_frame_time = total_time / (last_frames.len() as f32);
+    let fps = if avg_frame_time > 0.0 {
+        1.0 / avg_frame_time
+    } else {
+        0.0
+    };
+
+    // Update the last_frames array in a circular manner
+    // Is this the most efficient way? Probably not, but it's simple and the array is small
+    for i in (1..last_frames.len()).rev() {
+        last_frames[i] = last_frames[i - 1];
+    }
+    last_frames[0] = now;
+
+    (avg_frame_time * 1000.0, fps) // return in ms and fps
 }
 
 impl SimParams {
@@ -50,13 +102,33 @@ impl SimParams {
                 self.damping,
                 if self.wrap { 1.0 } else { 0.0 },
             ],
+            buff_na_na_na: [
+                match self.buffer_in_use {
+                    BufferInUse::Primary => 0.0,
+                    BufferInUse::Secondary => 1.0,
+                },
+                0.0,
+                0.0,
+                0.0,
+            ],
         }
     }
 
-    pub fn render_info(&mut self, ui: &mut egui::Ui) -> ParamsEguiAction {
+    pub fn render_info(
+        &mut self,
+        ui: &mut egui::Ui,
+        last_frame: &mut [std::time::Instant; crate::constants::egui::TIME_INFO_LAST_N],
+    ) -> ParamsEguiAction {
         let mut action = ParamsEguiAction::None;
 
-        ui.label("Simulation Parameters");
+        ui.heading("Simulation Info");
+        // Display the current frame time
+        let (frame_time, frame_per_sec) = compute_time_info(last_frame);
+        ui.label(format!("Frame Time: {:.2} ms", frame_time));
+        ui.label(format!("FPS: {:.2}", frame_per_sec));
+
+        ui.separator();
+        ui.heading("Simulation Parameters");
 
         // Time step
         let mut dt = self.dt;
@@ -135,10 +207,31 @@ impl SimParams {
             self.n = n;
         }
 
-        // Reset button
-        if ui.button("Reset Particles").clicked() {
-            action = ParamsEguiAction::Reset;
-        }
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            // Reset button
+            if ui.button("Reset Particles").clicked() {
+                action = ParamsEguiAction::Reset;
+            }
+
+            // Pause/Resume button
+            if ui
+                .button(if self.paused { "Resume" } else { "Pause" })
+                .clicked()
+            {
+                self.paused = !self.paused;
+                action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
+            }
+
+            // Step button (only enabled when paused)
+            if ui
+                .add_enabled(self.paused, egui::Button::new("Step"))
+                .clicked()
+            {
+                action = ParamsEguiAction::Step;
+            }
+        });
 
         action
     }

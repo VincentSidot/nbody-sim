@@ -1,4 +1,9 @@
-// shaders/render.wgsl (lecture positions)
+struct Sim {
+  dt_g_soft_n: vec4<f32>,       // (dt, g, softening, n)
+  world_damp_wrap: vec4<f32>,   // (world.x, world.y, damping, wrap(0/1))
+  buff_na_na_na: vec4<f32>,       // (buffer_in_use, na, na, na)
+};
+
 struct Particles {
     pos: array<vec2<f32>>,
 };
@@ -9,6 +14,7 @@ struct Colors {
 
 @group(0) @binding(0) var<storage, read> P : Particles;
 @group(0) @binding(1) var<storage, read> C : Colors;
+@group(0) @binding(2) var<uniform> S : Sim;
 
 struct VSOut {
     @builtin(position) pos: vec4<f32>,

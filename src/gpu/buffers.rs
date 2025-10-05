@@ -1,4 +1,6 @@
-use crate::sim::SimUniform;
+use bytemuck::cast_slice;
+
+use crate::sim::{SimParams, SimUniform};
 
 pub struct GpuBuffers {
     /// Buffer containing particle positions
@@ -14,6 +16,36 @@ pub struct GpuBuffers {
 }
 
 impl GpuBuffers {
+    pub fn resize(&mut self, device: &wgpu::Device, new_capacity: u32) {
+        if new_capacity <= self.capacity {
+            return;
+        }
+        *self = Self::create(device, new_capacity);
+    }
+
+    pub fn upload_data(
+        &self,
+        queue: &wgpu::Queue,
+        positions: Option<&[[f32; 2]]>,
+        velocities: Option<&[[f32; 2]]>,
+        colors: Option<&[[f32; 4]]>,
+        uniform: Option<&SimParams>,
+    ) {
+        if let Some(positions) = positions {
+            queue.write_buffer(&self.positions, 0, cast_slice(positions));
+        }
+        if let Some(velocities) = velocities {
+            queue.write_buffer(&self.velocities, 0, cast_slice(velocities));
+        }
+        if let Some(colors) = colors {
+            queue.write_buffer(&self.colors, 0, cast_slice(colors));
+        }
+        if let Some(params) = uniform {
+            let uniform = params.to_uniform();
+            queue.write_buffer(&self.uniform, 0, cast_slice(std::slice::from_ref(&uniform)));
+        }
+    }
+
     pub fn create(device: &wgpu::Device, mut capacity: u32) -> Self {
         // Align capacity to the closest power of two for better memory alignment
         capacity = capacity.next_power_of_two();

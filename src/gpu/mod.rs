@@ -3,7 +3,6 @@ mod compute;
 mod egui_renderer;
 mod renderer;
 
-use bytemuck::cast_slice;
 pub use egui_renderer::EguiRenderer;
 
 use std::sync::Arc;
@@ -12,14 +11,8 @@ use winit::window::Window;
 
 use crate::{
     constants,
-    gpu::{
-        buffers::GpuBuffers,
-        renderer::{
-            make_render_bg, make_render_bgl, make_render_pipeline, make_render_pipeline_layout,
-            make_render_shader,
-        },
-    },
-    sim::{self, ParamsEguiAction, ParticleUpdated, reset_galaxy},
+    gpu::buffers::GpuBuffers,
+    sim::{self, BufferInUse, ParamsEguiAction, ParticleUpdated, reset_galaxy},
 };
 
 pub struct State {
@@ -43,10 +36,20 @@ pub struct State {
     render_bind_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
     render_bind_group: wgpu::BindGroup,
+
+    /// Compute pipeline
+    compute_bind_group_layout: wgpu::BindGroupLayout,
+    compute_pipeline: wgpu::ComputePipeline,
+    compute_bind_group: wgpu::BindGroup,
+
+    /// Buffers
     buffers: buffers::GpuBuffers,
 
     // Simulation state
     params: sim::SimParams,
+
+    // State information
+    last_frame: [std::time::Instant; constants::egui::TIME_INFO_LAST_N],
 }
 
 fn setup_params() -> sim::SimParams {
@@ -58,6 +61,8 @@ fn setup_params() -> sim::SimParams {
         n: constants::sim::INITIAL_PARTICLES,
         world: constants::sim::WORLD_SIZE,
         wrap: constants::sim::WRAP,
+        paused: false,
+        buffer_in_use: BufferInUse::Primary,
     }
 }
 
@@ -110,12 +115,23 @@ impl State {
             _ => wgpu::TextureFormat::Bgra8Unorm, // reasonable fallback
         };
 
+        // Try to find a present mode that supports low latency and vsync
+        // Fallback to the first available mode if not found
+        let mut present_mode = surface_caps.present_modes[0];
+        for &preferred in constants::gpu::PRESENT_MODE_PREFERENCES {
+            if surface_caps.present_modes.contains(&preferred) {
+                present_mode = preferred;
+                break;
+            }
+        }
+        log::trace!("Chosen present mode: {:?}", present_mode);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: srgb_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![unorm_format],
             desired_maximum_frame_latency: constants::gpu::DESIRED_MAXIMUM_FRAME_LATENCY,
@@ -137,28 +153,32 @@ impl State {
             None
         };
 
-        let shader = make_render_shader(&device);
-        let render_bind_group_layout = make_render_bgl(&device);
-        let render_pipeline_layout =
-            make_render_pipeline_layout(&device, &[&render_bind_group_layout]);
-        let render_pipeline =
-            make_render_pipeline(&device, &render_pipeline_layout, &shader, srgb_format);
-
         let params = setup_params();
         let buffers = GpuBuffers::create(&device, params.n);
 
-        let render_bind_group = make_render_bg(&device, &render_bind_group_layout, &buffers);
+        let render_shader = renderer::make_shader(&device);
+        let render_bind_group_layout = renderer::make_bind_group_layout(&device);
+        let render_pipeline_layout =
+            renderer::make_pipeline_layout(&device, &[&render_bind_group_layout]);
+        let render_pipeline = renderer::make_pipeline(
+            &device,
+            &render_pipeline_layout,
+            &render_shader,
+            srgb_format,
+        );
+        let render_bind_group =
+            renderer::make_bind_group(&device, &render_bind_group_layout, &buffers);
 
-        // Populate initial particle data (to be moved to sim module later)
-        let (pos, vel, col) = reset_galaxy(params.n);
-        queue.write_buffer(&buffers.positions, 0, cast_slice(&pos));
-        queue.write_buffer(&buffers.velocities, 0, cast_slice(&vel));
-        queue.write_buffer(&buffers.colors, 0, cast_slice(&col));
+        let compute_shader = compute::make_shader(&device);
+        let compute_bind_group_layout = compute::make_bind_group_layout(&device);
+        let compute_pipeline_layout =
+            compute::make_pipeline_layout(&device, &[&compute_bind_group_layout]);
+        let compute_pipeline =
+            compute::make_pipeline(&device, &compute_pipeline_layout, &compute_shader);
+        let compute_bind_group =
+            compute::make_bind_group(&device, &compute_bind_group_layout, &buffers);
 
-        let uni = params.to_uniform();
-        queue.write_buffer(&buffers.uniform, 0, cast_slice(std::slice::from_ref(&uni)));
-
-        Ok(Self {
+        let mut _self = Self {
             surface,
             device,
             queue,
@@ -174,40 +194,56 @@ impl State {
             render_bind_group_layout,
             render_pipeline,
             render_bind_group,
+
+            compute_bind_group_layout,
+            compute_pipeline,
+            compute_bind_group,
+
             buffers,
 
             params,
-        })
+
+            last_frame: [std::time::Instant::now(); constants::egui::TIME_INFO_LAST_N],
+        };
+
+        _self.resize_particles();
+        _self.sync_uniform();
+
+        Ok(_self)
     }
 
     pub fn resize_particles(&mut self) {
+        // Resize buffers if needed
         if self.params.n > self.buffers.capacity {
-            log::info!(
-                "Resizing particle buffers: {} -> {}",
-                self.buffers.capacity,
-                self.params.n
+            self.buffers.resize(&self.device, self.params.n);
+            self.render_bind_group = renderer::make_bind_group(
+                &self.device,
+                &self.render_bind_group_layout,
+                &self.buffers,
             );
-            self.buffers = GpuBuffers::create(&self.device, self.params.n);
-            self.render_bind_group =
-                make_render_bg(&self.device, &self.render_bind_group_layout, &self.buffers);
+            self.compute_bind_group = compute::make_bind_group(
+                &self.device,
+                &self.compute_bind_group_layout,
+                &self.buffers,
+            );
         }
 
+        // Compute new initial positions and velocities
         let (pos, vel, col) = reset_galaxy(self.params.n);
-        self.queue
-            .write_buffer(&self.buffers.positions, 0, cast_slice(&pos));
-        self.queue
-            .write_buffer(&self.buffers.velocities, 0, cast_slice(&vel));
-        self.queue
-            .write_buffer(&self.buffers.colors, 0, cast_slice(&col));
+
+        // Upload to GPU
+        self.buffers.upload_data(
+            &self.queue,
+            Some(&pos),
+            Some(&vel),
+            Some(&col),
+            None, // uniform not updated here
+        );
     }
 
     pub fn sync_uniform(&mut self) {
-        let uni = self.params.to_uniform();
-        self.queue.write_buffer(
-            &self.buffers.uniform,
-            0,
-            cast_slice(std::slice::from_ref(&uni)),
-        );
+        self.buffers
+            .upload_data(&self.queue, None, None, None, Some(&self.params));
     }
 
     pub fn handle_egui_event(
@@ -232,7 +268,6 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // Currently just clears the screen with a solid color
         let output = self.surface.get_current_texture()?;
 
         let srgb_view = output.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -245,30 +280,70 @@ impl State {
             ..Default::default()
         });
 
-        // Clear the screen with a solid color
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &srgb_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(constants::gpu::BACKGROUND_COLOR),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
+        // Update simulation state
+        self._update(&mut encoder, None);
+        // Render the scene
+        self._render(&mut encoder, &srgb_view);
+        // Render the egui UI
+        self._render_egui(&mut encoder, &unorm_view);
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..self.params.n, 0..1);
+        // Submit the commands
+        self.queue.submit(Some(encoder.finish()));
+
+        // Drop the views to release the borrow on the texture
+        drop(unorm_view);
+        drop(srgb_view);
+
+        // Present the frame
+        output.present();
+
+        Ok(())
+    }
+
+    /// Update simulation state via compute shader
+    fn _update(&mut self, encoder: &mut wgpu::CommandEncoder, override_paused: Option<()>) {
+        if self.params.paused && override_paused.is_none() {
+            return;
         }
 
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Compute Pass"),
+            timestamp_writes: None,
+        });
+
+        compute_pass.set_pipeline(&self.compute_pipeline);
+        compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
+
+        let workgroup_count = (self.params.n + constants::shader::WORKGROUP_SIZE - 1)
+            / constants::shader::WORKGROUP_SIZE;
+
+        compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+    }
+
+    fn _render(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(constants::gpu::BACKGROUND_COLOR),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+        render_pass.draw(0..self.params.n, 0..1);
+    }
+
+    fn _render_egui(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         // Render the egui frame
         if let Some(egui) = &mut self.egui {
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
@@ -279,25 +354,28 @@ impl State {
             let mut params = std::mem::take(&mut self.params);
             let mut action = ParamsEguiAction::None;
 
+            let mut last_frame = self.last_frame;
+
             egui.draw(
                 &self.device,
                 &self.queue,
-                &mut encoder,
+                encoder,
                 &self.window,
-                &unorm_view,
+                view,
                 &screen_descriptor,
                 |ctx| {
                     egui::Window::new("Simulation Controls")
                         .default_width(300.0)
                         .resizable(true)
                         .show(ctx, |ui| {
-                            action = params.render_info(ui);
+                            action = params.render_info(ui, &mut last_frame);
                         });
                 },
             );
 
             // Put the params back
             self.params = params;
+            self.last_frame = last_frame;
 
             // Handle any actions from the UI
             match action {
@@ -311,15 +389,10 @@ impl State {
                 ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same) => {
                     self.sync_uniform();
                 }
+                ParamsEguiAction::Step => {
+                    self._update(encoder, Some(()));
+                }
             }
         }
-
-        self.queue.submit(Some(encoder.finish()));
-        drop(unorm_view);
-        drop(srgb_view);
-
-        output.present(); // Present the frame
-
-        Ok(())
     }
 }

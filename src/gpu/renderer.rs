@@ -4,7 +4,7 @@ use crate::gpu::buffers::GpuBuffers;
 
 // Shaders
 
-pub fn make_render_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
+pub fn make_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/render.wgsl").into()),
@@ -13,7 +13,7 @@ pub fn make_render_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
 
 // Pipeline
 
-pub fn make_render_pipeline_layout(
+pub fn make_pipeline_layout(
     device: &wgpu::Device,
     bgls: &[&wgpu::BindGroupLayout],
 ) -> wgpu::PipelineLayout {
@@ -24,7 +24,7 @@ pub fn make_render_pipeline_layout(
     })
 }
 
-pub fn make_render_pipeline(
+pub fn make_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
@@ -67,7 +67,7 @@ pub fn make_render_pipeline(
 
 // Buffers
 
-pub fn make_render_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+pub fn make_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("render_bgl"),
         entries: &[
@@ -97,7 +97,7 @@ pub fn make_render_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-pub fn make_render_bg(
+pub fn make_bind_group(
     device: &wgpu::Device,
     bgl: &wgpu::BindGroupLayout,
     buffers: &GpuBuffers,

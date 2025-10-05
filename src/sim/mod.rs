@@ -4,10 +4,15 @@ use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-pub use params::{ParamsEguiAction, ParticleUpdated, SimParams, SimUniform};
+pub use params::{BufferInUse, ParamsEguiAction, ParticleUpdated, SimParams, SimUniform};
 
 pub fn reset_galaxy(n: u32) -> (Vec<[f32; 2]>, Vec<[f32; 2]>, Vec<[f32; 4]>) {
-    let mut rng = StdRng::seed_from_u64(42);
+    let mut rng = StdRng::seed_from_u64(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+    );
     let half = n / 2;
     let mut pos = Vec::with_capacity(n as usize);
     let mut vel = Vec::with_capacity(n as usize);
