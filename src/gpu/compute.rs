@@ -43,7 +43,7 @@ pub fn make_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         label: Some("compute_bgl"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
-                // positions (read-write)
+                // positions primary (read-write)
                 binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
@@ -54,7 +54,7 @@ pub fn make_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
-                // velocities (read-write)
+                // velocities primary (read-write)
                 binding: 1,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
@@ -65,8 +65,41 @@ pub fn make_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
-                // uniform
+                // positions secondary (read-only)
                 binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                // velocities secondary (read-only)
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                // color
+                binding: 4,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                // uniform
+                binding: 5,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -89,15 +122,33 @@ pub fn make_bind_group(
         layout: bgl,
         entries: &[
             wgpu::BindGroupEntry {
+                // positions primary
                 binding: 0,
-                resource: buffers.positions.as_entire_binding(),
+                resource: buffers.positions_primary.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
+                // velocities primary
                 binding: 1,
-                resource: buffers.velocities.as_entire_binding(),
+                resource: buffers.velocities_primary.as_entire_binding(),
             },
             wgpu::BindGroupEntry {
+                // positions secondary
                 binding: 2,
+                resource: buffers.positions_secondary.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                // velocities secondary
+                binding: 3,
+                resource: buffers.velocities_secondary.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                // color
+                binding: 4,
+                resource: buffers.colors.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                // uniform
+                binding: 5,
                 resource: buffers.uniform.as_entire_binding(),
             },
         ],

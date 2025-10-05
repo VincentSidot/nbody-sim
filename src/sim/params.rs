@@ -1,12 +1,14 @@
+use crate::constants;
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SimUniform {
     /// (dt, g, softening, n as f32)
     pub dt_g_soft_n: [f32; 4],
-    /// (world_x, world_y, damping, wrap as f32)
-    pub world_damp_wrap: [f32; 4],
+    /// (world_x, world_y, damping, wrap as f32, color_by_speed as f32)
+    pub buff_damp_wrap_color: [f32; 4],
     /// Currently used buffer (0 or 1)
-    pub buff_na_na_na: [f32; 4],
+    pub world: [f32; 4],
 }
 
 #[repr(u32)]
@@ -17,7 +19,15 @@ pub enum BufferInUse {
     Secondary = 1,
 }
 
-#[derive(Default)]
+impl BufferInUse {
+    pub fn tick(&mut self) {
+        *self = match self {
+            BufferInUse::Primary => BufferInUse::Secondary,
+            BufferInUse::Secondary => BufferInUse::Primary,
+        }
+    }
+}
+
 pub struct SimParams {
     /// Time step
     pub dt: f32,
@@ -27,16 +37,35 @@ pub struct SimParams {
     pub softening: f32,
     /// Number of particles
     pub n: u32,
-    /// Size of the simulation world (width, height)
-    pub world: glam::Vec2,
+    /// Size of the simulation world (as a square, from -world to +world)
+    pub world: [glam::Vec2; 2],
     /// Velocity damping factor
     pub damping: f32,
     /// Whether the world wraps around at the edges
     pub wrap: bool,
     /// Whether the simulation is paused
     pub paused: bool,
+    /// Change color based on speed
+    pub color_by_speed: bool,
     /// Note the current used buffer (0 or 1)
     pub buffer_in_use: BufferInUse,
+}
+
+impl Default for SimParams {
+    fn default() -> Self {
+        Self {
+            dt: constants::sim::DT,
+            g: constants::sim::G,
+            damping: constants::sim::DAMPING,
+            softening: constants::sim::SOFTENING,
+            n: constants::sim::INITIAL_PARTICLES,
+            world: constants::sim::WORLD_SIZE,
+            wrap: constants::sim::WRAP,
+            paused: constants::sim::PAUSED,
+            color_by_speed: constants::sim::COLOR_BY_SPEED,
+            buffer_in_use: BufferInUse::Primary,
+        }
+    }
 }
 
 pub enum ParticleUpdated {
@@ -96,20 +125,20 @@ impl SimParams {
     pub fn to_uniform(&self) -> SimUniform {
         SimUniform {
             dt_g_soft_n: [self.dt, self.g, self.softening, self.n as f32],
-            world_damp_wrap: [
-                self.world.x,
-                self.world.y,
-                self.damping,
-                if self.wrap { 1.0 } else { 0.0 },
-            ],
-            buff_na_na_na: [
+            buff_damp_wrap_color: [
                 match self.buffer_in_use {
                     BufferInUse::Primary => 0.0,
                     BufferInUse::Secondary => 1.0,
                 },
-                0.0,
-                0.0,
-                0.0,
+                self.damping,
+                if self.wrap { 1.0 } else { 0.0 },
+                if self.color_by_speed { 1.0 } else { 0.0 },
+            ],
+            world: [
+                self.world[0].x,
+                self.world[0].y,
+                self.world[1].x,
+                self.world[1].y,
             ],
         }
     }
@@ -134,7 +163,7 @@ impl SimParams {
         let mut dt = self.dt;
         if ui
             .add(
-                egui::Slider::new(&mut dt, 0.001..=0.1)
+                egui::Slider::new(&mut dt, constants::sim::DT_RANGE)
                     .text("Time Step (dt)")
                     .step_by(0.001)
                     .suffix(" s"),
@@ -149,9 +178,9 @@ impl SimParams {
         let mut g = self.g;
         if ui
             .add(
-                egui::Slider::new(&mut g, -50.0..=0.0)
+                egui::Slider::new(&mut g, constants::sim::G_RANGE)
                     .text("Gravitational Constant (g)")
-                    .step_by(0.1),
+                    .step_by(constants::sim::G_STEP),
             )
             .changed()
         {
@@ -159,27 +188,13 @@ impl SimParams {
             action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
         }
 
-        // Damping factor
-        let mut damping = self.damping;
-        if ui
-            .add(
-                egui::Slider::new(&mut damping, 0.9..=1.0)
-                    .text("Damping Factor")
-                    .step_by(0.001),
-            )
-            .changed()
-        {
-            self.damping = damping;
-            action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
-        }
-
         // Softening factor
         let mut softening = self.softening;
         if ui
             .add(
-                egui::Slider::new(&mut softening, 0.0..=1.0)
+                egui::Slider::new(&mut softening, constants::sim::SOFTENING_RANGE)
                     .text("Softening Factor")
-                    .step_by(0.01),
+                    .step_by(constants::sim::SOFTENING_STEP),
             )
             .changed()
         {
@@ -187,13 +202,27 @@ impl SimParams {
             action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
         }
 
+        // Damping factor
+        let mut damping = self.damping;
+        if ui
+            .add(
+                egui::Slider::new(&mut damping, constants::sim::DAMPING_RANGE)
+                    .text("Damping Factor")
+                    .step_by(constants::sim::DAMPING_STEP),
+            )
+            .changed()
+        {
+            self.damping = damping;
+            action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
+        }
+
         // Number of particles
         let mut n = self.n;
         if ui
             .add(
-                egui::Slider::new(&mut n, 1_000..=crate::constants::sim::MAX_PARTICLES)
+                egui::Slider::new(&mut n, constants::sim::INITIAL_PARTICLES_RANGE)
                     .text("Number of Particles")
-                    .step_by(1_000.0),
+                    .step_by(constants::sim::INITIAL_PARTICLES_STEP),
             )
             .changed()
         {
@@ -205,6 +234,30 @@ impl SimParams {
                 action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
             }
             self.n = n;
+        }
+
+        // World wrap
+        let mut wrap = self.wrap;
+        if ui
+            .checkbox(&mut wrap, "Wrap World Edges")
+            .on_hover_text(
+                "Whether particles that exit one side of the world re-enter from the opposite side",
+            )
+            .changed()
+        {
+            self.wrap = wrap;
+            action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
+        }
+
+        // Color by speed
+        let mut color_by_speed = self.color_by_speed;
+        if ui
+            .checkbox(&mut color_by_speed, "Color by Speed")
+            .on_hover_text("Whether particle color is determined by its speed")
+            .changed()
+        {
+            self.color_by_speed = color_by_speed;
+            action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
         }
 
         ui.separator();

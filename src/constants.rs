@@ -32,14 +32,35 @@ pub mod egui {
 }
 
 pub mod sim {
+    use std::ops::RangeInclusive;
+
     use glam::Vec2;
 
-    pub const MAX_PARTICLES: u32 = 1_000_000;
-    pub const INITIAL_PARTICLES: u32 = 100_000;
+    pub const DT: f32 = 0.016; // ~60 FPS
+    pub const DT_RANGE: RangeInclusive<f32> = 0.001..=0.1; // From ~10 FPS to ~1000 FPS
 
-    pub const WORLD_SIZE: Vec2 = Vec2::new(2.0, 2.0);
+    pub const G: f32 = 6.67430e-11; // Gravitational constant (scaled for simulation)
+    pub const G_RANGE: RangeInclusive<f32> = 0.0..=1e-10; // Range for gravitational constant
+    pub const G_STEP: f64 = 1e-12;
+
+    pub const SOFTENING: f32 = 0.01; // Softening factor to prevent singularities
+    pub const SOFTENING_RANGE: RangeInclusive<f32> = 0.0..=0.1;
+    pub const SOFTENING_STEP: f64 = 0.001;
+
+    pub const INITIAL_PARTICLES: u32 = 100_000;
+    pub const INITIAL_PARTICLES_RANGE: RangeInclusive<u32> = 1..=1_000_000;
+    pub const INITIAL_PARTICLES_STEP: f64 = 1_000.0;
+
+    pub const WORLD_SIZE: [Vec2; 2] = [Vec2::splat(-1.0), Vec2::splat(1.0)];
+
     pub const DAMPING: f32 = 0.999;
+    pub const DAMPING_RANGE: RangeInclusive<f32> = 0.9..=1.0;
+    pub const DAMPING_STEP: f64 = 0.0005;
+
     pub const WRAP: bool = true;
+    pub const COLOR_BY_SPEED: bool = false;
+
+    pub const PAUSED: bool = true;
 }
 
 pub mod shader {

@@ -12,7 +12,7 @@ use winit::window::Window;
 use crate::{
     constants,
     gpu::buffers::GpuBuffers,
-    sim::{self, BufferInUse, ParamsEguiAction, ParticleUpdated, reset_galaxy},
+    sim::{self, BufferInUse, ParamsEguiAction, ParticleUpdated, SimParams, reset_galaxy},
 };
 
 pub struct State {
@@ -50,20 +50,6 @@ pub struct State {
 
     // State information
     last_frame: [std::time::Instant; constants::egui::TIME_INFO_LAST_N],
-}
-
-fn setup_params() -> sim::SimParams {
-    sim::SimParams {
-        dt: 0.016, // ~60 FPS
-        g: -9.81,
-        damping: constants::sim::DAMPING,
-        softening: 0.1,
-        n: constants::sim::INITIAL_PARTICLES,
-        world: constants::sim::WORLD_SIZE,
-        wrap: constants::sim::WRAP,
-        paused: false,
-        buffer_in_use: BufferInUse::Primary,
-    }
 }
 
 impl State {
@@ -153,7 +139,7 @@ impl State {
             None
         };
 
-        let params = setup_params();
+        let params = SimParams::default();
         let buffers = GpuBuffers::create(&device, params.n);
 
         let render_shader = renderer::make_shader(&device);
@@ -230,6 +216,7 @@ impl State {
 
         // Compute new initial positions and velocities
         let (pos, vel, col) = reset_galaxy(self.params.n);
+        self.params.buffer_in_use = BufferInUse::Primary; // reset to primary on upload
 
         // Upload to GPU
         self.buffers.upload_data(
@@ -237,7 +224,7 @@ impl State {
             Some(&pos),
             Some(&vel),
             Some(&col),
-            None, // uniform not updated here
+            Some(&self.params),
         );
     }
 
@@ -284,12 +271,13 @@ impl State {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        // Update simulation state
-        self._update(&mut encoder, None);
         // Render the scene
         self._render(&mut encoder, &srgb_view);
         // Render the egui UI
         self._render_egui(&mut encoder, &unorm_view);
+        self.sync_uniform(); // Ensure uniform is up to date
+        // Update simulation state
+        self._update(&mut encoder, None);
 
         // Submit the commands
         self.queue.submit(Some(encoder.finish()));
@@ -300,6 +288,11 @@ impl State {
 
         // Present the frame
         output.present();
+
+        // Tick the buffer in use
+        if !self.params.paused {
+            self.params.buffer_in_use.tick();
+        }
 
         Ok(())
     }
@@ -384,13 +377,17 @@ impl State {
                 | ParamsEguiAction::ParameterUpdated(ParticleUpdated::Less)
                 | ParamsEguiAction::ParameterUpdated(ParticleUpdated::More) => {
                     self.resize_particles();
-                    self.sync_uniform();
                 }
                 ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same) => {
                     self.sync_uniform();
                 }
                 ParamsEguiAction::Step => {
+                    debug_assert!(
+                        self.params.paused,
+                        "Step action should only be possible when paused"
+                    );
                     self._update(encoder, Some(()));
+                    self.params.buffer_in_use.tick(); // Advance buffer even if paused
                 }
             }
         }

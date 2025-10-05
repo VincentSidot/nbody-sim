@@ -3,10 +3,14 @@ use bytemuck::cast_slice;
 use crate::sim::{SimParams, SimUniform};
 
 pub struct GpuBuffers {
-    /// Buffer containing particle positions
-    pub positions: wgpu::Buffer,
-    /// Buffer containing particle velocities
-    pub velocities: wgpu::Buffer,
+    /// Buffer containing particle positions (primary)
+    pub positions_primary: wgpu::Buffer,
+    /// Buffer containing particle positions (secondary)
+    pub positions_secondary: wgpu::Buffer,
+    /// Buffer containing particle velocities (primary)
+    pub velocities_primary: wgpu::Buffer,
+    /// Buffer containing particle velocities (secondary)
+    pub velocities_secondary: wgpu::Buffer,
     /// Buffer containing particle colors
     pub colors: wgpu::Buffer,
     /// Buffer containing simulation parameters
@@ -32,10 +36,10 @@ impl GpuBuffers {
         uniform: Option<&SimParams>,
     ) {
         if let Some(positions) = positions {
-            queue.write_buffer(&self.positions, 0, cast_slice(positions));
+            queue.write_buffer(&self.positions_primary, 0, cast_slice(positions));
         }
         if let Some(velocities) = velocities {
-            queue.write_buffer(&self.velocities, 0, cast_slice(velocities));
+            queue.write_buffer(&self.velocities_primary, 0, cast_slice(velocities));
         }
         if let Some(colors) = colors {
             queue.write_buffer(&self.colors, 0, cast_slice(colors));
@@ -66,20 +70,32 @@ impl GpuBuffers {
             })
         };
 
-        let positions = mk(
-            "positions",
+        let positions_primary = mk(
+            "positions_primary",
             pos_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let velocities = mk(
+        let positions_secondary = mk(
+            "positions_secondary",
+            pos_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let velocities_primary = mk(
             "velocities",
             vel_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
+        let velocities_secondary = mk(
+            "velocities_secondary",
+            vel_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
         let colors = mk(
-            "colors",
+            "colors_primary",
             col_size,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
@@ -91,8 +107,10 @@ impl GpuBuffers {
         );
 
         Self {
-            positions,
-            velocities,
+            positions_primary,
+            positions_secondary,
+            velocities_primary,
+            velocities_secondary,
             colors,
             uniform,
             capacity,
