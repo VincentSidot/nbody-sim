@@ -255,6 +255,7 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        self.sync_uniform(); // Ensure uniform is up to date
         let output = self.surface.get_current_texture()?;
 
         let srgb_view = output.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -271,13 +272,12 @@ impl State {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
+        // Update simulation state
+        self._update(&mut encoder, None);
         // Render the scene
         self._render(&mut encoder, &srgb_view);
         // Render the egui UI
         self._render_egui(&mut encoder, &unorm_view);
-        self.sync_uniform(); // Ensure uniform is up to date
-        // Update simulation state
-        self._update(&mut encoder, None);
 
         // Submit the commands
         self.queue.submit(Some(encoder.finish()));

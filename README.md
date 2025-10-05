@@ -1,6 +1,14 @@
 # Particle Playground
 
-A high-performance particle simulation playground built with Rust and WebGPU (wgpu), featuring real-time N-body gravitational physics simulation with interactive controls.
+A particle simulation playground built with Rust and WebGPU (wgpu), featuring real-time N-body gravitational physics simulation with interactive controls.
+
+## 🚀 Overview
+
+![example](./media/example.gif)
+
+It does not render much well with a gif, but it looks much better in real-time. You can see the particles moving and interacting under gravitational forces.
+
+The simulation run at 130fps with 100,000 particles on an RTX 3090. Not tried with more particles yet, but it would handle more with less stupid shaders.
 
 ## 🌌 Features
 
