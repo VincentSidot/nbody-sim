@@ -1,6 +1,6 @@
 struct Sim {
   dt_g_soft_n: vec4<f32>,         // (dt, g, softening, n)
-  buff_damp_wrap_na: vec4<f32>,   // (buff(0/1), damping, wrap(0/1), na)
+  buff_damp_wrap_color: vec4<f32>,   // (buff(0/1), damping, wrap(0/1), color(0/1))
   world: vec4<f32>,               // (world.min.x, world.min.y, world.max.x, world.max.y)
 };
 
@@ -28,7 +28,7 @@ struct VSOut {
 @vertex
 fn vs_main(@builtin(vertex_index) idx: u32) -> VSOut {
     // Select buffers based on buffer_in_use flag
-    let buff = u32(S.buff_damp_wrap_na[0]); // Buffer in use (0 or 1)
+    let buff = u32(S.buff_damp_wrap_color[0]); // Buffer in use (0 or 1)
     
     var p: vec2<f32>;
     let c = color.data[idx];

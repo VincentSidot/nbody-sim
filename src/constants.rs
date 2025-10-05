@@ -15,11 +15,9 @@ pub mod gpu {
     pub const DITHERING: bool = true;
 
     pub const PRESENT_MODE_PREFERENCES: &[wgpu::PresentMode] = &[
-        wgpu::PresentMode::Fifo,        // Vsync, no tearing
-        wgpu::PresentMode::FifoRelaxed, // Low latency, may tear
-        wgpu::PresentMode::Mailbox,     // Low latency, no tearing
-        wgpu::PresentMode::Fifo,        // Vsync, no tearing
-        wgpu::PresentMode::Immediate,   // Low latency, may tear
+        wgpu::PresentMode::Mailbox,   // Low latency, no tearing
+        wgpu::PresentMode::Fifo,      // Vsync, no tearing
+        wgpu::PresentMode::Immediate, // Low latency, may tear
     ];
 }
 
@@ -39,9 +37,9 @@ pub mod sim {
     pub const DT: f32 = 0.016; // ~60 FPS
     pub const DT_RANGE: RangeInclusive<f32> = 0.001..=0.1; // From ~10 FPS to ~1000 FPS
 
-    pub const G: f32 = 6.67430e-11; // Gravitational constant (scaled for simulation)
-    pub const G_RANGE: RangeInclusive<f32> = 0.0..=1e-10; // Range for gravitational constant
-    pub const G_STEP: f64 = 1e-12;
+    pub const G: f32 = 6.67430e-6; // Gravitational constant (scaled for simulation)
+    pub const G_RANGE: RangeInclusive<f32> = 0.0..=1e-4; // Range for gravitational constant
+    pub const G_STEP: f64 = 1e-10;
 
     pub const SOFTENING: f32 = 0.01; // Softening factor to prevent singularities
     pub const SOFTENING_RANGE: RangeInclusive<f32> = 0.0..=0.1;

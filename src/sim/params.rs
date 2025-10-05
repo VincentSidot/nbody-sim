@@ -2,6 +2,7 @@ use crate::constants;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+// Note the padding to make the struct 16-byte aligned
 pub struct SimUniform {
     /// (dt, g, softening, n as f32)
     pub dt_g_soft_n: [f32; 4],
@@ -168,6 +169,7 @@ impl SimParams {
                     .step_by(0.001)
                     .suffix(" s"),
             )
+            .on_hover_text("The time step for each simulation update (in seconds)")
             .changed()
         {
             self.dt = dt;
@@ -182,6 +184,7 @@ impl SimParams {
                     .text("Gravitational Constant (g)")
                     .step_by(constants::sim::G_STEP),
             )
+            .on_hover_text("The gravitational constant used in the simulation")
             .changed()
         {
             self.g = g;
@@ -196,6 +199,7 @@ impl SimParams {
                     .text("Softening Factor")
                     .step_by(constants::sim::SOFTENING_STEP),
             )
+            .on_hover_text("Softening factor to prevent singularities in force calculations")
             .changed()
         {
             self.softening = softening;
@@ -210,6 +214,7 @@ impl SimParams {
                     .text("Damping Factor")
                     .step_by(constants::sim::DAMPING_STEP),
             )
+            .on_hover_text("Velocity damping factor to simulate friction or drag")
             .changed()
         {
             self.damping = damping;
@@ -224,6 +229,7 @@ impl SimParams {
                     .text("Number of Particles")
                     .step_by(constants::sim::INITIAL_PARTICLES_STEP),
             )
+            .on_hover_text("The total number of particles in the simulation")
             .changed()
         {
             if n < self.n {
@@ -263,6 +269,14 @@ impl SimParams {
         ui.separator();
 
         ui.horizontal(|ui| {
+            // Reset parameters button
+            if ui.button("Reset Parameters").clicked() {
+                let mut _def = SimParams::default();
+                _def.n = self.n; // keep current n
+                *self = _def;
+                action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
+            }
+
             // Reset button
             if ui.button("Reset Particles").clicked() {
                 action = ParamsEguiAction::Reset;
