@@ -52,7 +52,7 @@ pub fn reset_galaxy(n: u32) -> (Vec<[f32; 2]>, Vec<[f32; 2]>, Vec<[f32; 4]>) {
 
             pos.push([p.x, p.y]);
             vel.push([v.x, v.y]);
-            col.push([red_component, blue_component, green_component, 1.0]); // RGBA
+            col.push([red_component, green_component, blue_component, 1.0]); // RGBA
         }
     };
 
