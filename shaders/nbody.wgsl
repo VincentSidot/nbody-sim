@@ -1,10 +1,13 @@
 struct Sim {
   dt_g_soft_n: vec4<f32>,         // (dt, g, softening, n)
-  damp_wrap_color_na: vec4<f32>,   // (damping, wrap(0/1), color(0/1), na)
+  damp_wrap_color_bootstrap: vec4<f32>,   // (damping, wrap(0/1), color(0/1), bootstrap(0/1))
   world: vec4<f32>,               // (world.min.x, world.min.y, world.max.x, world.max.y)
 };
 
 const WORKGROUP_SIZE : u32 = __WORKGROUP_SIZE__;
+const TILE : u32 = WORKGROUP_SIZE;
+
+var<workgroup> pos_tile : array<Position, TILE>;
 
 alias Position = vec2<f32>;
 alias Velocity = vec2<f32>;
@@ -76,39 +79,10 @@ fn update_position(p: Position, v: Velocity, dt: f32, world_min: vec2<f32>, worl
   return np;
 }
 
-fn compute_single_acceleration(pos: Position, other_pos: Position, g: f32, softening: f32) -> Acceleration {
-  let delta = other_pos - pos;
-  let dist_sqr = dot(delta, delta) + softening;
-  let inv_dist = inverseSqrt(dist_sqr);
-  let inv_dist3 = inv_dist * inv_dist * inv_dist;
-  // F = G * (m1*m2) / r^2  but m1=m2=1 so F = G/r^2; a = F/m = F
-  // a = F/m = F/1 = F
-  // ax = g * dx / r^3
-  // ay = g * dy / r^3
-  return g * delta * inv_dist3; 
-}
-
-fn compute_acceleration(id: u32, n: u32, g: f32, softening: f32) -> Acceleration {
-  var acc = Acceleration(0.0, 0.0);
-  let my_pos = position_read[id];
-  let softening2 = softening * softening;
-
-  for (var i: u32 = 0u; i < n; i = i + 1u) {
-    let pos = position_read[i];
-    acc = acc + compute_single_acceleration(my_pos, pos, g, softening2);
-  }
-
-  return acc;
-}
-
-fn update_velocity(v: Velocity, id: u32, n: u32, g: f32, softening: f32, dt: f32, damp: f32) -> Velocity {
-  let acc = compute_acceleration(id, n, g, softening);
-  return (v + acc * dt) * damp;
-}
-
 @compute @workgroup_size(__WORKGROUP_SIZE__)
 fn update(
-  @builtin(global_invocation_id) gid : vec3<u32>
+  @builtin(global_invocation_id) gid: vec3<u32>,
+  @builtin(local_invocation_id)  lid: vec3<u32>
 ) {
 
   // Compute the id
@@ -116,35 +90,69 @@ fn update(
   let n = u32(S.dt_g_soft_n[3]); // Number of particles
 
   // Bounds check
-  if (id >= n) {
-    return;
-  }
+  if (id >= n) { return; }
 
   let inP : Position = position_read[id];
-  var inV : Velocity = velocity_read[id];
 
   // Load parameters
   let dt = S.dt_g_soft_n[0];
   let g = S.dt_g_soft_n[1];
-  let softening = S.dt_g_soft_n[2];
+  let soft = S.dt_g_soft_n[2];
   let world_min = S.world.xy;
   let world_max = S.world.zw;
-  let damp = S.damp_wrap_color_na[0];
-  let wrap = u32(S.damp_wrap_color_na[1]);
-  let color_by_speed = u32(S.damp_wrap_color_na[2]);
+  let damp = S.damp_wrap_color_bootstrap[0];
+  let wrap = u32(S.damp_wrap_color_bootstrap[1]);
+  let cspd = S.damp_wrap_color_bootstrap[2]; // 0 or 1
+  let bootstrap = u32(S.damp_wrap_color_bootstrap[3]); // 0 or 1
 
-  let outV = update_velocity(inV, id, n, g, softening, dt, damp);
-  let outP = update_position(inP, outV, dt, world_min, world_max, wrap);
+  var acc : Acceleration = Acceleration(0.0, 0.0);
+  var base : u32 = 0u;
 
-  if (color_by_speed == 1u) {
-    // Update color based on speed
-    let c = compute_color(outV);
-    color[id] = c;
+  let soft2 = soft * soft;
+  
+  loop {
+    if (base >= n) { break; }
+
+    let j = base + lid.x;
+    if (j < n) {
+      pos_tile[lid.x] = position_read[j];   // one coalesced load per lane
+    }
+    workgroupBarrier();
+
+    let count = min(TILE, n - base);
+    for (var k: u32 = 0u; k < count; k = k + 1u) {
+      // (optional) skip self when j==id if base+k==id
+      let other = pos_tile[k];
+      let delta = other - inP;
+      let dist2 = dot(delta, delta) + soft2; // add softening term to avoid singularity
+      let invd  = inverseSqrt(dist2);
+      let invd3 = invd * invd * invd;
+      acc += g * delta * invd3;
+    }
+    workgroupBarrier();
+
+    base += TILE;
   }
 
+
+  var v_half = velocity_read[id];   // if bootstrap: this is v0; else: v_{n-1/2}
+
+  if (bootstrap == 1u) {
+    v_half = v_half + acc * (0.5 * dt);   // one-time half-kick: v_{+1/2} from v0
+  } else {
+    v_half = v_half + acc * dt;           // normal leapfrog kick
+  }
+  v_half *= damp;
+
+  let p_new = update_position(inP, v_half, dt, world_min, world_max, wrap);
+
+  // Update color based on speed
+  let c = compute_color(v_half);
+  color[id] = mix(color[id], c, cspd); // 0 or 1
+
   // Store results
-  position_write[id] = outP;
-  velocity_write[id] = outV;
+  position_write[id] = p_new;
+  velocity_write[id] = v_half;
 
   return;
 }

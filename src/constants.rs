@@ -62,6 +62,6 @@ pub mod sim {
 }
 
 pub mod shader {
-    pub const WORKGROUP_SIZE: u32 = 64;
+    pub const WORKGROUP_SIZE: u32 = 256;
     pub const WORKGROUP_SIZE_PAYLOAD: &str = "__WORKGROUP_SIZE__";
 }

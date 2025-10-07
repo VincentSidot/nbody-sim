@@ -6,8 +6,8 @@ use crate::constants;
 pub struct SimUniform {
     /// (dt, g, softening, n as f32)
     pub dt_g_soft_n: [f32; 4],
-    /// (world_x, world_y, damping, wrap as f32, color_by_speed as f32)
-    pub damp_wrap_color_na: [f32; 4],
+    /// (world_x, world_y, damping, wrap as f32, color_by_speed as f32, bootstrap (0 or 1))
+    pub damp_wrap_color_bootstrap: [f32; 4],
     /// Currently used buffer (0 or 1)
     pub world: [f32; 4],
 }
@@ -31,6 +31,10 @@ pub struct SimParams {
     pub paused: bool,
     /// Change color based on speed
     pub color_by_speed: bool,
+    /// Bootstrap the simulation (0 or 1)
+    pub bootstrap: bool,
+    /// Current epoch (frame) number
+    pub epoch: u128,
 }
 
 impl Default for SimParams {
@@ -45,6 +49,8 @@ impl Default for SimParams {
             wrap: constants::sim::WRAP,
             paused: constants::sim::PAUSED,
             color_by_speed: constants::sim::COLOR_BY_SPEED,
+            bootstrap: true, // start with bootstrap enabled
+            epoch: 0,
         }
     }
 }
@@ -79,38 +85,40 @@ fn compute_time_info(
     last_frames: &mut [std::time::Instant; crate::constants::egui::TIME_INFO_LAST_N],
 ) -> (f32, f32) {
     let now = std::time::Instant::now();
-    let mut total_time = 0.0;
+
+    // last_frames[0] is the most recent stored sample
+    let mut total = now.duration_since(last_frames[0]).as_secs_f32();
     for i in 1..last_frames.len() {
-        total_time += (last_frames[i] - last_frames[i - 1]).as_secs_f32();
+        // newer (i-1) minus older (i) -> positive duration
+        total += last_frames[i - 1]
+            .duration_since(last_frames[i])
+            .as_secs_f32();
     }
-    total_time += (now - last_frames[0]).as_secs_f32();
 
-    let avg_frame_time = total_time / (last_frames.len() as f32);
-    let fps = if avg_frame_time > 0.0 {
-        1.0 / avg_frame_time
-    } else {
-        0.0
-    };
-
-    // Update the last_frames array in a circular manner
-    // Is this the most efficient way? Probably not, but it's simple and the array is small
+    // Shift window (newest at [0])
     for i in (1..last_frames.len()).rev() {
         last_frames[i] = last_frames[i - 1];
     }
     last_frames[0] = now;
 
-    (avg_frame_time * 1000.0, fps) // return in ms and fps
+    let avg_frame_time = total / (last_frames.len() as f32);
+    let fps = if avg_frame_time > 0.0 {
+        1.0 / avg_frame_time
+    } else {
+        0.0
+    };
+    (avg_frame_time * 1000.0, fps)
 }
 
 impl SimParams {
     pub fn to_uniform(&self) -> SimUniform {
         SimUniform {
             dt_g_soft_n: [self.dt, self.g, self.softening, self.n as f32],
-            damp_wrap_color_na: [
+            damp_wrap_color_bootstrap: [
                 self.damping,
                 if self.wrap { 1.0 } else { 0.0 },
                 if self.color_by_speed { 1.0 } else { 0.0 },
-                0.0,
+                if self.bootstrap { 1.0 } else { 0.0 },
             ],
             world: [
                 self.world[0].x,
@@ -119,6 +127,14 @@ impl SimParams {
                 self.world[1].y,
             ],
         }
+    }
+
+    pub fn increment_epoch(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
+    }
+
+    pub fn reset_epoch(&mut self) {
+        self.epoch = 0;
     }
 
     pub fn render_info(
@@ -133,6 +149,7 @@ impl SimParams {
         let (frame_time, frame_per_sec) = compute_time_info(last_frame);
         ui.label(format!("Frame Time: {:.2} ms", frame_time));
         ui.label(format!("FPS: {:.2}", frame_per_sec));
+        ui.label(format!("Epoch: {}", self.epoch));
 
         ui.separator();
         ui.heading("Simulation Parameters");

@@ -247,6 +247,8 @@ impl State {
             );
         }
 
+        self.params.reset_epoch();
+
         // Compute new initial positions and velocities
         let (pos, vel, col) = reset_galaxy(self.params.n);
         self.buffer_in_use = BufferInUse::Primary; // reset to primary on upload
@@ -288,7 +290,6 @@ impl State {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.sync_uniform(); // Ensure uniform is up to date
         let output = self.surface.get_current_texture()?;
 
         let srgb_view = output.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -325,6 +326,11 @@ impl State {
         // Tick the buffer in use
         if !self.params.paused {
             self.buffer_in_use.tick();
+            // Swap out bootstrap flag after first frame
+            if self.params.bootstrap {
+                self.params.bootstrap = false;
+                self.sync_uniform();
+            }
         }
 
         Ok(())
@@ -335,6 +341,8 @@ impl State {
         if self.params.paused && override_paused.is_none() {
             return;
         }
+
+        self.params.increment_epoch(); // Increment epoch each update
 
         let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("Compute Pass"),
