@@ -29,4 +29,6 @@ path = "src/main.rs"
 name = "extract"
 path = "utils/extract_source.rs"
 
-
+[[example]]
+name = "radix-sort"
+path = "examples/radix_sort.rs"

@@ -4,7 +4,7 @@ struct Sim {
   world: vec4<f32>,               // (world.min.x, world.min.y, world.max.x, world.max.y)
 };
 
-const WORKGROUP_SIZE : u32 = __WORKGROUP_SIZE__;
+const WORKGROUP_SIZE : u32 = __WORKGROUP_SIZE__; // Set at compile time
 const TILE : u32 = WORKGROUP_SIZE;
 
 var<workgroup> pos_tile : array<Position, TILE>;
@@ -70,7 +70,7 @@ fn wrap_pos(p: Position, world_min: vec2<f32>, world_max: vec2<f32>) -> Position
 
 fn update_position(p: Position, v: Velocity, dt: f32, world_min: vec2<f32>, world_max: vec2<f32>, wrap: u32) -> Position {
   var np = p + v * dt;
-  if (wrap == 0) {
+  if (wrap == 0u) {
     np = clamp_pos(np, world_min, world_max);
   } else {
     np = wrap_pos(np, world_min, world_max);
@@ -79,7 +79,7 @@ fn update_position(p: Position, v: Velocity, dt: f32, world_min: vec2<f32>, worl
   return np;
 }
 
-@compute @workgroup_size(__WORKGROUP_SIZE__)
+@compute @workgroup_size(WORKGROUP_SIZE)
 fn update(
   @builtin(global_invocation_id) gid: vec3<u32>,
   @builtin(local_invocation_id)  lid: vec3<u32>
