@@ -1,24 +1,24 @@
 struct Sim {
   dt_g_soft_n: vec4<f32>,         // (dt, g, softening, n)
-  buff_damp_wrap_color: vec4<f32>,   // (buff(0/1), damping, wrap(0/1), color(0/1))
+  damp_wrap_color_na: vec4<f32>,   // (damping, wrap(0/1), color(0/1), na)
   world: vec4<f32>,               // (world.min.x, world.min.y, world.max.x, world.max.y)
 };
 
-const PRIMARY_BUFFER: u32 = 0;
-const SECONDARY_BUFFER: u32 = 1;
 const WORKGROUP_SIZE : u32 = __WORKGROUP_SIZE__;
 
-alias Particle = vec2<f32>;
+alias Position = vec2<f32>;
 alias Velocity = vec2<f32>;
+alias Acceleration = vec2<f32>;
+alias Color = vec4<f32>;
 
-@group(0) @binding(0) var<storage, read_write> position_primary : array<Particle>;
-@group(0) @binding(1) var<storage, read_write> velocity_primary : array<Velocity>;
-@group(0) @binding(2) var<storage, read_write> position_secondary : array<Particle>;
-@group(0) @binding(3) var<storage, read_write> velocity_secondary : array<Velocity>;
-@group(0) @binding(4) var<storage, read_write> color : array<vec4<f32>>;
+@group(0) @binding(0) var<storage, read_write> position_write : array<Position>;
+@group(0) @binding(1) var<storage, read_write> velocity_write : array<Velocity>;
+@group(0) @binding(2) var<storage, read> position_read : array<Position>;
+@group(0) @binding(3) var<storage, read> velocity_read : array<Velocity>;
+@group(0) @binding(4) var<storage, read_write> color : array<Color>;
 @group(0) @binding(5) var<uniform> S : Sim;
 
-fn compute_color(v: Velocity) -> vec4<f32> {
+fn compute_color(v: Velocity) -> Color {
   let speed = length(v);
   let t = clamp(speed / 1.0, 0.0, 1.0); // assuming max speed ~5 for normalization
   return mix(vec4<f32>(0.0, 0.0, 1.0, 1.0), vec4<f32>(1.0, 0.0, 0.0, 1.0), t); // from blue to red
@@ -29,16 +29,7 @@ fn fmod(x: f32, y: f32) -> f32 {
     return x - y * floor(x / y);
 }
 
-fn read_pos(i: u32, buff: u32) -> Particle {
-  // select(x, y, b) returns b ? y : x
-  return select(position_secondary[i], position_primary[i], buff == PRIMARY_BUFFER);
-}
-
-fn read_vel(i: u32, buff: u32) -> Velocity {
-  return select(velocity_secondary[i], velocity_primary[i], buff == PRIMARY_BUFFER);
-}
-
-fn clamp_pos(p: vec2<f32>, world_min: vec2<f32>, world_max: vec2<f32>) -> vec2<f32> {
+fn clamp_pos(p: Position, world_min: vec2<f32>, world_max: vec2<f32>) -> Position {
   var np = p;
   if (np.x < world_min.x) {
     np.x = world_min.x;
@@ -55,7 +46,7 @@ fn clamp_pos(p: vec2<f32>, world_min: vec2<f32>, world_max: vec2<f32>) -> vec2<f
   return np;
 }
 
-fn wrap_pos(p: vec2<f32>, world_min: vec2<f32>, world_max: vec2<f32>) -> vec2<f32> {
+fn wrap_pos(p: Position, world_min: vec2<f32>, world_max: vec2<f32>) -> Position {
   var np = p;
   let world_size = world_max - world_min;
 
@@ -74,7 +65,7 @@ fn wrap_pos(p: vec2<f32>, world_min: vec2<f32>, world_max: vec2<f32>) -> vec2<f3
   return np;
 }
 
-fn update_position(p: Particle, v: Velocity, dt: f32, world_min: vec2<f32>, world_max: vec2<f32>, wrap: u32) -> vec2<f32> {
+fn update_position(p: Position, v: Velocity, dt: f32, world_min: vec2<f32>, world_max: vec2<f32>, wrap: u32) -> Position {
   var np = p + v * dt;
   if (wrap == 0) {
     np = clamp_pos(np, world_min, world_max);
@@ -85,7 +76,7 @@ fn update_position(p: Particle, v: Velocity, dt: f32, world_min: vec2<f32>, worl
   return np;
 }
 
-fn compute_single_acceleration(pos: Particle, other_pos: Particle, g: f32, softening: f32) -> vec2<f32> {
+fn compute_single_acceleration(pos: Position, other_pos: Position, g: f32, softening: f32) -> Acceleration {
   let delta = other_pos - pos;
   let dist_sqr = dot(delta, delta) + softening;
   let inv_dist = inverseSqrt(dist_sqr);
@@ -97,21 +88,21 @@ fn compute_single_acceleration(pos: Particle, other_pos: Particle, g: f32, softe
   return g * delta * inv_dist3; 
 }
 
-fn compute_acceleration(id: u32, n: u32, g: f32, softening: f32, buff: u32) -> vec2<f32> {
-  var acc = vec2<f32>(0.0, 0.0);
-  let my_pos = read_pos(id, buff);
+fn compute_acceleration(id: u32, n: u32, g: f32, softening: f32) -> Acceleration {
+  var acc = Acceleration(0.0, 0.0);
+  let my_pos = position_read[id];
   let softening2 = softening * softening;
 
   for (var i: u32 = 0u; i < n; i = i + 1u) {
-    let pos = read_pos(i, buff);
+    let pos = position_read[i];
     acc = acc + compute_single_acceleration(my_pos, pos, g, softening2);
   }
 
   return acc;
 }
 
-fn update_velocity(v: Velocity, id: u32, n: u32, g: f32, softening: f32, dt: f32, damp: f32, buff: u32) -> Velocity {
-  let acc = compute_acceleration(id, n, g, softening, buff);
+fn update_velocity(v: Velocity, id: u32, n: u32, g: f32, softening: f32, dt: f32, damp: f32) -> Velocity {
+  let acc = compute_acceleration(id, n, g, softening);
   return (v + acc * dt) * damp;
 }
 
@@ -123,16 +114,14 @@ fn update(
   // Compute the id
   let id = gid.x;  
   let n = u32(S.dt_g_soft_n[3]); // Number of particles
-  let buff = u32(S.buff_damp_wrap_color[0]); // Buffer in use (0 or 1)
 
   // Bounds check
   if (id >= n) {
     return;
   }
 
-  // Select buffers based on buffer_in_use flag
-  let inP : Particle = read_pos(id, buff);
-  var inV : Velocity = read_vel(id, buff);
+  let inP : Position = position_read[id];
+  var inV : Velocity = velocity_read[id];
 
   // Load parameters
   let dt = S.dt_g_soft_n[0];
@@ -140,11 +129,11 @@ fn update(
   let softening = S.dt_g_soft_n[2];
   let world_min = S.world.xy;
   let world_max = S.world.zw;
-  let damp = S.buff_damp_wrap_color[1];
-  let wrap = u32(S.buff_damp_wrap_color[2]);
-  let color_by_speed = u32(S.buff_damp_wrap_color[3]);
+  let damp = S.damp_wrap_color_na[0];
+  let wrap = u32(S.damp_wrap_color_na[1]);
+  let color_by_speed = u32(S.damp_wrap_color_na[2]);
 
-  let outV = update_velocity(inV, id, n, g, softening, dt, damp, buff);
+  let outV = update_velocity(inV, id, n, g, softening, dt, damp);
   let outP = update_position(inP, outV, dt, world_min, world_max, wrap);
 
   if (color_by_speed == 1u) {
@@ -154,13 +143,8 @@ fn update(
   }
 
   // Store results
-  if (buff == PRIMARY_BUFFER) {
-    position_secondary[id] = outP;
-    velocity_secondary[id] = outV;
-  } else {
-    position_primary[id] = outP;
-    velocity_primary[id] = outV;  
-  }
+  position_write[id] = outP;
+  velocity_write[id] = outV;
 
   return;
 }

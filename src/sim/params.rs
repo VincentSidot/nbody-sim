@@ -7,26 +7,9 @@ pub struct SimUniform {
     /// (dt, g, softening, n as f32)
     pub dt_g_soft_n: [f32; 4],
     /// (world_x, world_y, damping, wrap as f32, color_by_speed as f32)
-    pub buff_damp_wrap_color: [f32; 4],
+    pub damp_wrap_color_na: [f32; 4],
     /// Currently used buffer (0 or 1)
     pub world: [f32; 4],
-}
-
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum BufferInUse {
-    #[default]
-    Primary = 0,
-    Secondary = 1,
-}
-
-impl BufferInUse {
-    pub fn tick(&mut self) {
-        *self = match self {
-            BufferInUse::Primary => BufferInUse::Secondary,
-            BufferInUse::Secondary => BufferInUse::Primary,
-        }
-    }
 }
 
 pub struct SimParams {
@@ -48,8 +31,6 @@ pub struct SimParams {
     pub paused: bool,
     /// Change color based on speed
     pub color_by_speed: bool,
-    /// Note the current used buffer (0 or 1)
-    pub buffer_in_use: BufferInUse,
 }
 
 impl Default for SimParams {
@@ -64,7 +45,6 @@ impl Default for SimParams {
             wrap: constants::sim::WRAP,
             paused: constants::sim::PAUSED,
             color_by_speed: constants::sim::COLOR_BY_SPEED,
-            buffer_in_use: BufferInUse::Primary,
         }
     }
 }
@@ -126,14 +106,11 @@ impl SimParams {
     pub fn to_uniform(&self) -> SimUniform {
         SimUniform {
             dt_g_soft_n: [self.dt, self.g, self.softening, self.n as f32],
-            buff_damp_wrap_color: [
-                match self.buffer_in_use {
-                    BufferInUse::Primary => 0.0,
-                    BufferInUse::Secondary => 1.0,
-                },
+            damp_wrap_color_na: [
                 self.damping,
                 if self.wrap { 1.0 } else { 0.0 },
                 if self.color_by_speed { 1.0 } else { 0.0 },
+                0.0,
             ],
             world: [
                 self.world[0].x,

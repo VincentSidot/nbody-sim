@@ -12,8 +12,39 @@ use winit::window::Window;
 use crate::{
     constants,
     gpu::buffers::GpuBuffers,
-    sim::{self, BufferInUse, ParamsEguiAction, ParticleUpdated, SimParams, reset_galaxy},
+    sim::{self, ParamsEguiAction, ParticleUpdated, SimParams, reset_galaxy},
 };
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BufferInUse {
+    #[default]
+    Primary = 0,
+    Secondary = 1,
+}
+
+impl BufferInUse {
+    pub fn tick(&mut self) {
+        *self = match self {
+            BufferInUse::Primary => BufferInUse::Secondary,
+            BufferInUse::Secondary => BufferInUse::Primary,
+        }
+    }
+
+    pub fn id_compute(&self) -> usize {
+        match self {
+            BufferInUse::Primary => 0,
+            BufferInUse::Secondary => 1,
+        }
+    }
+
+    pub fn id_render(&self) -> usize {
+        match self {
+            BufferInUse::Primary => 1,
+            BufferInUse::Secondary => 0,
+        }
+    }
+}
 
 pub struct State {
     // WGPU core components
@@ -35,12 +66,12 @@ pub struct State {
     // Render pipeline
     render_bind_group_layout: wgpu::BindGroupLayout,
     render_pipeline: wgpu::RenderPipeline,
-    render_bind_group: wgpu::BindGroup,
+    render_bind_groups: [wgpu::BindGroup; 2],
 
     /// Compute pipeline
     compute_bind_group_layout: wgpu::BindGroupLayout,
     compute_pipeline: wgpu::ComputePipeline,
-    compute_bind_group: wgpu::BindGroup,
+    compute_bind_groups: [wgpu::BindGroup; 2],
 
     /// Buffers
     buffers: buffers::GpuBuffers,
@@ -50,6 +81,7 @@ pub struct State {
 
     // State information
     last_frame: [std::time::Instant; constants::egui::TIME_INFO_LAST_N],
+    buffer_in_use: BufferInUse,
 }
 
 impl State {
@@ -179,17 +211,18 @@ impl State {
 
             render_bind_group_layout,
             render_pipeline,
-            render_bind_group,
+            render_bind_groups: render_bind_group,
 
             compute_bind_group_layout,
             compute_pipeline,
-            compute_bind_group,
+            compute_bind_groups: compute_bind_group,
 
             buffers,
 
             params,
 
             last_frame: [std::time::Instant::now(); constants::egui::TIME_INFO_LAST_N],
+            buffer_in_use: BufferInUse::Primary,
         };
 
         _self.resize_particles();
@@ -202,12 +235,12 @@ impl State {
         // Resize buffers if needed
         if self.params.n > self.buffers.capacity {
             self.buffers.resize(&self.device, self.params.n);
-            self.render_bind_group = renderer::make_bind_group(
+            self.render_bind_groups = renderer::make_bind_group(
                 &self.device,
                 &self.render_bind_group_layout,
                 &self.buffers,
             );
-            self.compute_bind_group = compute::make_bind_group(
+            self.compute_bind_groups = compute::make_bind_group(
                 &self.device,
                 &self.compute_bind_group_layout,
                 &self.buffers,
@@ -216,7 +249,7 @@ impl State {
 
         // Compute new initial positions and velocities
         let (pos, vel, col) = reset_galaxy(self.params.n);
-        self.params.buffer_in_use = BufferInUse::Primary; // reset to primary on upload
+        self.buffer_in_use = BufferInUse::Primary; // reset to primary on upload
 
         // Upload to GPU
         self.buffers.upload_data(
@@ -291,7 +324,7 @@ impl State {
 
         // Tick the buffer in use
         if !self.params.paused {
-            self.params.buffer_in_use.tick();
+            self.buffer_in_use.tick();
         }
 
         Ok(())
@@ -308,8 +341,10 @@ impl State {
             timestamp_writes: None,
         });
 
+        let id = self.buffer_in_use.id_compute();
+
         compute_pass.set_pipeline(&self.compute_pipeline);
-        compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
+        compute_pass.set_bind_group(0, &self.compute_bind_groups[id], &[]);
 
         let workgroup_count = (self.params.n + constants::shader::WORKGROUP_SIZE - 1)
             / constants::shader::WORKGROUP_SIZE;
@@ -331,8 +366,10 @@ impl State {
             ..Default::default()
         });
 
+        let id = self.buffer_in_use.id_render();
+
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.render_bind_groups[id], &[]);
         render_pass.draw(0..self.params.n, 0..1);
     }
 
@@ -387,7 +424,7 @@ impl State {
                         "Step action should only be possible when paused"
                     );
                     self._update(encoder, Some(()));
-                    self.params.buffer_in_use.tick(); // Advance buffer even if paused
+                    self.buffer_in_use.tick(); // Advance buffer even if paused
                 }
             }
         }

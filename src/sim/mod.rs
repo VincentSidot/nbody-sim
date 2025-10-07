@@ -4,7 +4,7 @@ use glam::Vec2;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-pub use params::{BufferInUse, ParamsEguiAction, ParticleUpdated, SimParams, SimUniform};
+pub use params::{ParamsEguiAction, ParticleUpdated, SimParams, SimUniform};
 
 fn color(r: u8, g: u8, b: u8) -> [f32; 3] {
     [(r as f32) / 255.0, (g as f32) / 255.0, (b as f32) / 255.0]
