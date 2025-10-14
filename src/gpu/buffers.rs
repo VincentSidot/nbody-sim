@@ -37,6 +37,8 @@ impl GpuBuffers {
     ) {
         if let Some(positions) = positions {
             queue.write_buffer(&self.positions_primary, 0, cast_slice(positions));
+            // Push here to avoid display issues on first frame
+            queue.write_buffer(&self.positions_secondary, 0, cast_slice(positions));
         }
         if let Some(velocities) = velocities {
             queue.write_buffer(&self.velocities_primary, 0, cast_slice(velocities));

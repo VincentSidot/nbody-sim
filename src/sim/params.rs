@@ -81,33 +81,19 @@ pub enum ParamsEguiAction {
 /// # Returns
 ///
 /// A tuple containing the average frame time in milliseconds and the frames per second (FPS)
-fn compute_time_info(
-    last_frames: &mut [std::time::Instant; crate::constants::egui::TIME_INFO_LAST_N],
-) -> (f32, f32) {
+fn compute_time_info(last_frame: &mut std::time::Instant) -> (f32, f32) {
     let now = std::time::Instant::now();
 
-    // last_frames[0] is the most recent stored sample
-    let mut total = now.duration_since(last_frames[0]).as_secs_f32();
-    for i in 1..last_frames.len() {
-        // newer (i-1) minus older (i) -> positive duration
-        total += last_frames[i - 1]
-            .duration_since(last_frames[i])
-            .as_secs_f32();
-    }
+    let frame_time = now.duration_since(*last_frame).as_secs_f32() * 1000.0; // in ms
+    *last_frame = now;
 
-    // Shift window (newest at [0])
-    for i in (1..last_frames.len()).rev() {
-        last_frames[i] = last_frames[i - 1];
-    }
-    last_frames[0] = now;
-
-    let avg_frame_time = total / (last_frames.len() as f32);
-    let fps = if avg_frame_time > 0.0 {
-        1.0 / avg_frame_time
+    let fps = if frame_time > 0.0 {
+        1000.0 / frame_time
     } else {
         0.0
     };
-    (avg_frame_time * 1000.0, fps)
+
+    (frame_time, fps)
 }
 
 impl SimParams {
@@ -140,7 +126,7 @@ impl SimParams {
     pub fn render_info(
         &mut self,
         ui: &mut egui::Ui,
-        last_frame: &mut [std::time::Instant; crate::constants::egui::TIME_INFO_LAST_N],
+        last_frame: &mut std::time::Instant,
     ) -> ParamsEguiAction {
         let mut action = ParamsEguiAction::None;
 

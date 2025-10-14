@@ -24,9 +24,6 @@ pub mod gpu {
 pub mod egui {
     pub const BORDER_RADIUS: egui::CornerRadius = egui::CornerRadius::same(2);
     pub const SHADOW: egui::epaint::Shadow = egui::epaint::Shadow::NONE;
-
-    /// Number of frames to average for time info (FPS, frame time) this will smooth out the values
-    pub const TIME_INFO_LAST_N: usize = 5;
 }
 
 pub mod sim {

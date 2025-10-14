@@ -80,7 +80,7 @@ pub struct State {
     params: sim::SimParams,
 
     // State information
-    last_frame: [std::time::Instant; constants::egui::TIME_INFO_LAST_N],
+    last_frame: std::time::Instant,
     buffer_in_use: BufferInUse,
 }
 
@@ -221,7 +221,7 @@ impl State {
 
             params,
 
-            last_frame: [std::time::Instant::now(); constants::egui::TIME_INFO_LAST_N],
+            last_frame: std::time::Instant::now(),
             buffer_in_use: BufferInUse::Primary,
         };
 

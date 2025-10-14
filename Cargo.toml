@@ -32,3 +32,7 @@ path = "utils/extract_source.rs"
 [[example]]
 name = "radix-sort"
 path = "examples/radix_sort.rs"
+
+[[example]]
+name = "radix-sort-wgpu"
+path = "examples/radix_sort_wgpu.rs"
