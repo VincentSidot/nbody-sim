@@ -29,10 +29,10 @@ pub fn radix_sort(input: &mut Vec<u32>) {
         }
 
         // Distribute (forward iteration is fine with exclusive sums)
-        for (i, &x) in input.iter().enumerate() {
+        for x in input.iter() {
             let b = ((x >> shift) & 0xFF) as usize;
             let pos = count[b];
-            out_buf[pos] = x;
+            out_buf[pos] = *x;
             count[b] = pos + 1;
         }
 
@@ -144,21 +144,13 @@ impl Benchmarker {
 }
 
 fn main() {
-    // let mut benchmarker = Benchmarker::new(10);
-    // benchmarker.register("radix sort", |data| radix_sort(data));
-    // benchmarker.register("radix sort (swap)", |data| radix_sort_swap(data));
-    // benchmarker.register("unstable sort", |data| data.sort_unstable());
-    // // benchmarker.register("stable sort", |data| data.sort());
+    let mut benchmarker = Benchmarker::new(10);
+    benchmarker.register("radix sort", |data| radix_sort(data));
+    benchmarker.register("unstable sort", |data| data.sort_unstable());
+    // benchmarker.register("stable sort", |data| data.sort());
 
-    // let size = 100_000;
-    // println!("Running benchmarks with input size: {}", size);
-    // benchmarker.run(size);
-    // benchmarker.report();
-
-    let mut values = vec![170, 45, 75, 90, 802, 24, 2, 66];
-
-    println!("Unsorted values: {:?}", values);
-    radix_sort(&mut values);
-
-    println!("Sorted values: {:?}", values);
+    let size = 100_000;
+    println!("Running benchmarks with input size: {}", size);
+    benchmarker.run(size);
+    benchmarker.report();
 }
