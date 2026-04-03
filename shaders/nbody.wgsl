@@ -68,6 +68,25 @@ fn wrap_pos(p: Position, world_min: vec2<f32>, world_max: vec2<f32>) -> Position
   return np;
 }
 
+fn wrapped_delta(delta: vec2<f32>, world_size: vec2<f32>) -> vec2<f32> {
+  var d = delta;
+  let half_world = 0.5 * world_size;
+
+  if (d.x > half_world.x) {
+    d.x -= world_size.x;
+  } else if (d.x < -half_world.x) {
+    d.x += world_size.x;
+  }
+
+  if (d.y > half_world.y) {
+    d.y -= world_size.y;
+  } else if (d.y < -half_world.y) {
+    d.y += world_size.y;
+  }
+
+  return d;
+}
+
 fn update_position(p: Position, v: Velocity, dt: f32, world_min: vec2<f32>, world_max: vec2<f32>, wrap: u32) -> Position {
   var np = p + v * dt;
   if (wrap == 0u) {
@@ -100,6 +119,7 @@ fn update(
   let soft = S.dt_g_soft_n[2];
   let world_min = S.world.xy;
   let world_max = S.world.zw;
+  let world_size = world_max - world_min;
   let damp = S.damp_wrap_color_bootstrap[0];
   let wrap = u32(S.damp_wrap_color_bootstrap[1]);
   let cspd = S.damp_wrap_color_bootstrap[2]; // 0 or 1
@@ -121,9 +141,15 @@ fn update(
 
     let count = min(TILE, n - base);
     for (var k: u32 = 0u; k < count; k = k + 1u) {
-      // (optional) skip self when j==id if base+k==id
+      if (base + k == id) {
+        continue;
+      }
+
       let other = pos_tile[k];
-      let delta = other - inP;
+      var delta = other - inP;
+      if (wrap == 1u) {
+        delta = wrapped_delta(delta, world_size);
+      }
       let dist2 = dot(delta, delta) + soft2; // add softening term to avoid singularity
       let invd  = inverseSqrt(dist2);
       let invd3 = invd * invd * invd;
@@ -142,7 +168,10 @@ fn update(
   } else {
     v_half = v_half + acc * dt;           // normal leapfrog kick
   }
-  v_half *= damp;
+
+  // Treat damping as velocity retention per simulated second.
+  let damp_step = pow(damp, dt);
+  v_half *= damp_step;
 
   let p_new = update_position(inP, v_half, dt, world_min, world_max, wrap);
 

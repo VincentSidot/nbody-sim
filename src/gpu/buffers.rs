@@ -41,7 +41,9 @@ impl GpuBuffers {
             queue.write_buffer(&self.positions_secondary, 0, cast_slice(positions));
         }
         if let Some(velocities) = velocities {
+            // Keep both velocity buffers in sync so leapfrog bootstrap reads a valid state.
             queue.write_buffer(&self.velocities_primary, 0, cast_slice(velocities));
+            queue.write_buffer(&self.velocities_secondary, 0, cast_slice(velocities));
         }
         if let Some(colors) = colors {
             queue.write_buffer(&self.colors, 0, cast_slice(colors));

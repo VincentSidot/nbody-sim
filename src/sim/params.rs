@@ -23,7 +23,7 @@ pub struct SimParams {
     pub n: u32,
     /// Size of the simulation world (as a square, from -world to +world)
     pub world: [glam::Vec2; 2],
-    /// Velocity damping factor
+    /// Velocity retention per simulated second
     pub damping: f32,
     /// Whether the world wraps around at the edges
     pub wrap: bool,
@@ -146,10 +146,10 @@ impl SimParams {
             .add(
                 egui::Slider::new(&mut dt, constants::sim::DT_RANGE)
                     .text("Time Step (dt)")
-                    .step_by(0.001)
+                    .step_by(constants::sim::DT_STEP)
                     .suffix(" s"),
             )
-            .on_hover_text("The time step for each simulation update (in seconds)")
+            .on_hover_text("Simulation time advanced per compute step. Lower values are more stable but slower in simulated time")
             .changed()
         {
             self.dt = dt;
@@ -162,9 +162,10 @@ impl SimParams {
             .add(
                 egui::Slider::new(&mut g, constants::sim::G_RANGE)
                     .text("Gravitational Constant (g)")
+                    .logarithmic(true)
                     .step_by(constants::sim::G_STEP),
             )
-            .on_hover_text("The gravitational constant used in the simulation")
+            .on_hover_text("Strength of pairwise attraction. Log scale is used because the useful range spans several orders of magnitude")
             .changed()
         {
             self.g = g;
@@ -177,24 +178,25 @@ impl SimParams {
             .add(
                 egui::Slider::new(&mut softening, constants::sim::SOFTENING_RANGE)
                     .text("Softening Factor")
+                    .logarithmic(true)
                     .step_by(constants::sim::SOFTENING_STEP),
             )
-            .on_hover_text("Softening factor to prevent singularities in force calculations")
+            .on_hover_text("Minimum interaction scale used to avoid singular forces and reduce core collapse")
             .changed()
         {
             self.softening = softening;
             action = ParamsEguiAction::ParameterUpdated(ParticleUpdated::Same);
         }
 
-        // Damping factor
+        // Velocity retention per second
         let mut damping = self.damping;
         if ui
             .add(
                 egui::Slider::new(&mut damping, constants::sim::DAMPING_RANGE)
-                    .text("Damping Factor")
+                    .text("Velocity Retention / s")
                     .step_by(constants::sim::DAMPING_STEP),
             )
-            .on_hover_text("Velocity damping factor to simulate friction or drag")
+            .on_hover_text("Fraction of velocity preserved over one simulated second. Use 1.0 for no drag")
             .changed()
         {
             self.damping = damping;
@@ -209,7 +211,7 @@ impl SimParams {
                     .text("Number of Particles")
                     .step_by(constants::sim::INITIAL_PARTICLES_STEP),
             )
-            .on_hover_text("The total number of particles in the simulation")
+            .on_hover_text("Total particle count. Larger values quickly increase cost because the kernel is still O(N^2)")
             .changed()
         {
             if n < self.n {
