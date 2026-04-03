@@ -59,9 +59,8 @@ pub struct State {
     // Optional egui renderer
     egui: Option<EguiRenderer>,
 
-    // Surface formats
+    // Surface format
     srgb_format: wgpu::TextureFormat,
-    unorm_format: wgpu::TextureFormat,
 
     // Render pipeline
     render_bind_group_layout: wgpu::BindGroupLayout,
@@ -85,25 +84,69 @@ pub struct State {
 }
 
 impl State {
+    async fn select_adapter(
+        instance: &wgpu::Instance,
+        surface: &wgpu::Surface<'_>,
+    ) -> anyhow::Result<wgpu::Adapter> {
+        let mut adapters: Vec<wgpu::Adapter> = instance
+            .enumerate_adapters(wgpu::Backends::all())
+            .into_iter()
+            .filter(|a| a.is_surface_supported(surface))
+            .collect();
+
+        if adapters.is_empty() {
+            anyhow::bail!(
+                "No WGPU adapter supports the window surface. \
+This is common in WSL when GPU/WSLg support is missing or outdated."
+            );
+        }
+
+        let power_preference = wgpu::PowerPreference::default();
+        let rank = |info: &wgpu::AdapterInfo| -> u8 {
+            use wgpu::DeviceType::*;
+            match (power_preference, info.device_type) {
+                (wgpu::PowerPreference::None, DiscreteGpu) => 0,
+                (wgpu::PowerPreference::None, IntegratedGpu) => 1,
+                (wgpu::PowerPreference::HighPerformance, DiscreteGpu) => 0,
+                (wgpu::PowerPreference::HighPerformance, IntegratedGpu) => 1,
+                (wgpu::PowerPreference::LowPower, IntegratedGpu) => 0,
+                (wgpu::PowerPreference::LowPower, DiscreteGpu) => 1,
+                (_, VirtualGpu) => 2,
+                (_, Cpu) => 3,
+                (_, Other) => 4,
+            }
+        };
+
+        adapters.sort_by_key(|a| rank(&a.get_info()));
+        let adapter = adapters.remove(0);
+
+        let info = adapter.get_info();
+        log::info!(
+            "Selected adapter: {} (type: {:?}, backend: {:?}, driver: {})",
+            info.name,
+            info.device_type,
+            info.backend,
+            info.driver
+        );
+
+        Ok(adapter)
+    }
+
     pub async fn new(window: Arc<Window>, enable_egui: bool) -> anyhow::Result<Self> {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance_desc = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
-        });
+        }
+        .with_env();
+        let instance = wgpu::Instance::new(&instance_desc);
 
         let surface = instance
             .create_surface(window.clone())
             .expect("Failed to create surface");
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await?;
+        let adapter = Self::select_adapter(&instance, &surface).await?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -126,13 +169,6 @@ impl State {
             .copied()
             .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb);
 
-        // Derive a matching UNORM (linear) format for egui
-        let unorm_format = match srgb_format {
-            wgpu::TextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8Unorm,
-            wgpu::TextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8Unorm,
-            _ => wgpu::TextureFormat::Bgra8Unorm, // reasonable fallback
-        };
-
         // Try to find a present mode that supports low latency and vsync
         // Fallback to the first available mode if not found
         let mut present_mode = surface_caps.present_modes[0];
@@ -151,7 +187,7 @@ impl State {
             height: size.height,
             present_mode,
             alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![unorm_format],
+            view_formats: vec![],
             desired_maximum_frame_latency: constants::gpu::DESIRED_MAXIMUM_FRAME_LATENCY,
         };
 
@@ -161,7 +197,7 @@ impl State {
         let egui = if enable_egui {
             Some(EguiRenderer::new(
                 &device,
-                unorm_format,
+                srgb_format,
                 None, // No depth format
                 constants::gpu::MSAA_SAMPLES,
                 constants::gpu::DITHERING,
@@ -207,7 +243,6 @@ impl State {
             egui,
 
             srgb_format,
-            unorm_format,
 
             render_bind_group_layout,
             render_pipeline,
@@ -297,11 +332,6 @@ impl State {
             ..Default::default()
         });
 
-        let unorm_view = output.texture.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(self.unorm_format),
-            ..Default::default()
-        });
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -311,13 +341,12 @@ impl State {
         // Render the scene
         self._render(&mut encoder, &srgb_view);
         // Render the egui UI
-        self._render_egui(&mut encoder, &unorm_view);
+        self._render_egui(&mut encoder, &srgb_view);
 
         // Submit the commands
         self.queue.submit(Some(encoder.finish()));
 
         // Drop the views to release the borrow on the texture
-        drop(unorm_view);
         drop(srgb_view);
 
         // Present the frame

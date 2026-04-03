@@ -17,7 +17,7 @@ fn main() {
 
     let mut app = App::default();
 
-    event_loop
-        .run_app(&mut app)
-        .expect("Failed to run application");
+    if let Err(err) = event_loop.run_app(&mut app) {
+        log::error!("Application exited with event loop error: {err}");
+    }
 }

@@ -1,5 +1,6 @@
 use colored::Colorize;
 use log::{Level, LevelFilter, Log};
+use std::io::Write;
 
 use super::config::Config;
 
@@ -80,8 +81,10 @@ impl Log for Logger {
                     record.args()
                 ),
             };
-            // Print to stdout for simplicity; in a real application, consider using a more robust logging solution
-            println!("{}", text);
+            // GUI apps can outlive or detach from the launching terminal. Ignore broken pipe
+            // errors so logging does not crash the process.
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(stdout, "{}", text);
         }
     }
 

@@ -13,7 +13,7 @@ colored = "3.0.0"
 dotenvy = "0.15.7"
 egui = "0.32.3"
 egui-wgpu = "0.32.3"
-egui-winit = "0.32.3"
+egui-winit = { version = "0.32.3", default-features = false, features = ["wayland", "x11"] }
 glam = "0.30.8"
 log = "0.4.28"
 pollster = "0.4.0"
